@@ -45,6 +45,7 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
       insulation_conductivity: float = 0.067,
       insulation_thickness: float = 0.06,
       init_return_water_temperature_sensor: float = 295.0,
+      energy_balance: bool = False,
   ):
     observable_fields = {
         'supply_water_temperature_setpoint': smart_device.AttributeInfo(
@@ -89,6 +90,9 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
     self._water_capacity = water_capacity
     self._insulation_conductivity = insulation_conductivity
     self._insulation_thickness = insulation_thickness
+    # Tank temperature from an energy balance instead of a setpoint follower;
+    # see apply_heat_draw.
+    self.energy_balance = energy_balance and self._has_tank and heating_rate > 0
 
     self.reset()
 
@@ -103,6 +107,7 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
     self._step_tank_temperature_change = 0.0
     self._last_step_duration = pd.Timedelta(0, unit='second')
     self._run_command = smart_device.RunStatus.OFF
+    self._burner_heat_rate = 0.0
 
   @property
   def return_water_temperature_sensor(self) -> float:
@@ -122,8 +127,50 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
 
   @property
   def supply_water_temperature_sensor(self) -> float:
-    self._set_current_temperature()
+    if not self.energy_balance:
+      self._set_current_temperature()
     return self._current_temperature
+
+  def apply_heat_draw(
+      self, coil_heat_w: float, outside_temp: float, duration_s: float
+  ) -> None:
+    """Advances the tank temperature by one step from an energy balance.
+
+        C dT/dt = Q_burner - Q_coils - Q_loss,   C = c_w * rho_w * V_tank
+
+    The coils draw Q_coils at the tank temperature. The burner fires only as
+    much as is needed to bring the tank towards its setpoint, at most enough to
+    cover the draw and the standing loss and still raise the tank at
+    heating_rate. With no draw the tank therefore heats exactly as fast as the
+    setpoint follower; below the setpoint it no longer cools at a fixed rate
+    but by the heat actually taken out of it, and every joule the coils deliver
+    is either burned in this step or was burned earlier to charge the tank.
+
+    Args:
+      coil_heat_w: Heat the coils took from the water this step, in W.
+      outside_temp: Temperature in K around the tank.
+      duration_s: Step length in seconds.
+    """
+    capacity = (
+        constants.WATER_HEAT_CAPACITY
+        * constants.WATER_DENSITY
+        * self._water_capacity
+    )
+    loss = self.compute_thermal_dissipation_rate(
+        self._current_temperature, outside_temp
+    )
+    needed = (
+        capacity
+        * (self._supply_water_temperature_setpoint - self._current_temperature)
+        / duration_s
+        + coil_heat_w
+        + loss
+    )
+    max_rate = max(coil_heat_w, 0.0) + loss + capacity * self._heating_rate / 60.0
+    self._burner_heat_rate = min(max(needed, 0.0), max_rate)
+    self._current_temperature += (
+        (self._burner_heat_rate - coil_heat_w - loss) * duration_s / capacity
+    )
 
   @property
   def run_command(self) -> smart_device.RunStatus:
@@ -210,6 +257,9 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
       outside_temp: Temperature in K that the water tank is in.
       total_flow_rate: The total flow rate of water through the HWS in m3/s.
     """
+    if self.energy_balance:
+      return self._burner_heat_rate
+
     # If return_water_temp is greater than the setpoint,
     # the boiler should not be cooling.
     if self._supply_water_temperature_setpoint > return_water_temp:

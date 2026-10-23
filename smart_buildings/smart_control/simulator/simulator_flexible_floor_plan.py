@@ -521,6 +521,24 @@ class SimulatorFlexibleGeometries(simulator.Simulator[str]):
         )
     )
 
+    # Energy-balanced tank: the water loop's heat draw this step (the same
+    # flow * (T_supply - T_return) the gas bill used) is taken out of the tank.
+    heat_source = getattr(hvac.hot_water_system, "_heat_source", None)
+    if getattr(heat_source, "energy_balance", False):
+      hws = hvac.hot_water_system
+      coil_heat_w = (
+          constants.WATER_HEAT_CAPACITY
+          * constants.WATER_DENSITY
+          * hws.total_flow_rate
+          * (
+              hws.supply_water_temperature_sensor
+              - hws.return_water_temperature_sensor
+          )
+      )
+      heat_source.apply_heat_draw(
+          coil_heat_w, ambient_temperature, self._time_step_sec
+      )
+
     # A guard against solver divergence, not a physical bound.
     #
     # The bounds have to sit outside the range real weather reaches. Exterior
