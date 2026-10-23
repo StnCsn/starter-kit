@@ -30,6 +30,10 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
     tank_radius: tank interior radius [m]
     insulation_conductivity: conductivity of the insulating walls [W/m/K]
     insulation_thickness: thickness of the cylindrical insulating wall [m]
+    energy_balance: tank temperature from an energy balance and gas billed as
+      burner heat (see apply_heat_draw). Only takes effect with a tank and a
+      positive heating_rate; False restores the setpoint follower, where
+      cooling_rate applies.
   """
 
   def __init__(
@@ -151,6 +155,8 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
       outside_temp: Temperature in K around the tank.
       duration_s: Step length in seconds.
     """
+    if duration_s <= 0.0:
+      return
     capacity = (
         constants.WATER_HEAT_CAPACITY
         * constants.WATER_DENSITY
@@ -251,6 +257,10 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
       total_flow_rate: float,
   ) -> float:
     """Returns energy rate in W consumed by boiler to heat water.
+
+    With energy_balance this is the burner heat of the last apply_heat_draw
+    step, and the arguments are not used (the draw and the loss were already
+    accounted for there).
 
     Args:
       return_water_temp: Temperature in K that water is received at.
