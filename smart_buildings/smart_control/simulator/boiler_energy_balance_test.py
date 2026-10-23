@@ -8,9 +8,15 @@ the tank temperature for hours with the flow term at zero: billed gas fell to
 in the same step or earlier to charge the tank.
 """
 
+import inspect
+
 from absl.testing import absltest
 
-from smart_buildings.smart_control.simulator import boiler
+from smart_buildings.smart_control.simulator import (
+    boiler,
+    simulator,
+    simulator_flexible_floor_plan,
+)
 from smart_buildings.smart_control.utils import constants
 
 STEP_S = 300.0
@@ -51,6 +57,18 @@ class BoilerEnergyBalanceTest(absltest.TestCase):
     self.assertEqual(b.compute_thermal_energy_rate(0.0, 280.0, 0.0), 0.0)
     # the tank pays for the draw: 50 kW for 5 min out of 6.3 MJ/K
     self.assertLess(b.supply_water_temperature_sensor, t0 - 2.3)
+
+  def test_both_simulators_advance_the_tank(self):
+    # With energy_balance on, the boiler no longer moves its own temperature on
+    # a sensor read, so a simulator that skipped apply_heat_draw would freeze
+    # the tank and bill no gas at all.
+    for step in (
+        simulator.Simulator.execute_step_sim,
+        simulator_flexible_floor_plan.SimulatorFlexibleGeometries.execute_step_sim,
+    ):
+      self.assertIn(
+          "hot_water_system.apply_heat_draw(", inspect.getsource(step)
+      )
 
 
 if __name__ == "__main__":

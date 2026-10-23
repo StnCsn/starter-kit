@@ -211,6 +211,9 @@ class Simulator[ZoneKeyT]:
     hvac.hot_water_system.return_water_temperature_sensor = (
         self._calculate_return_water_temperature(zone_supply_temp_map)
     )
+    hvac.hot_water_system.apply_heat_draw(
+        ambient_temperature, self._time_step_sec
+    )
 
     # Increment the timestamp.
     self._current_timestamp += pd.Timedelta(self._time_step_sec, unit='s')
