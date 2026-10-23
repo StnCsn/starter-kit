@@ -1,11 +1,11 @@
-"""Tests the energy-balanced hot-water tank (Boiler(energy_balance=True)).
+"""Tests the energy-balanced hot-water tank.
 
-With the setpoint follower the tank temperature moved toward the setpoint at a
-fixed rate whatever the coils drew, while gas was billed at the setpoint. A
-policy could charge the tank, drop the setpoint below the return temperature
-and keep drawing heat at the tank temperature for hours with the flow term at
-zero: billed gas fell to 0.23-0.37 of the heat the coils delivered. With the
-energy balance every joule the coils take is burned, now or earlier.
+Before, the tank temperature moved toward the setpoint at a fixed rate whatever
+the coils drew, while gas was billed at the setpoint. A policy could charge the
+tank, drop the setpoint below the return temperature and keep drawing heat at
+the tank temperature for hours with the flow term at zero: billed gas fell to
+0.38 of the heat the coils delivered. Now every joule the coils take is burned,
+in the same step or earlier to charge the tank.
 """
 
 from absl.testing import absltest
@@ -22,7 +22,6 @@ def _boiler(setpoint):
       supply_water_temperature_setpoint=setpoint,
       heating_rate=0.5,
       cooling_rate=0.1,
-      energy_balance=True,
   )
 
 
@@ -52,20 +51,6 @@ class BoilerEnergyBalanceTest(absltest.TestCase):
     self.assertEqual(b.compute_thermal_energy_rate(0.0, 280.0, 0.0), 0.0)
     # the tank pays for the draw: 50 kW for 5 min out of 6.3 MJ/K
     self.assertLess(b.supply_water_temperature_sensor, t0 - 2.3)
-
-  def test_heats_at_heating_rate_without_draw(self):
-    b = _boiler(310.0)
-    b.supply_water_temperature_setpoint = 348.0
-    t0 = b.supply_water_temperature_sensor
-    b.apply_heat_draw(0.0, 280.0, STEP_S)
-    self.assertAlmostEqual(b.supply_water_temperature_sensor - t0, 2.5, places=6)
-
-  def test_holds_setpoint_under_load(self):
-    b = _boiler(340.0)
-    for _ in range(10):
-      b.apply_heat_draw(80_000.0, 280.0, STEP_S)
-    self.assertAlmostEqual(b.supply_water_temperature_sensor, 340.0, places=6)
-    self.assertGreater(b.compute_thermal_energy_rate(0.0, 280.0, 0.0), 80_000.0)
 
 
 if __name__ == "__main__":

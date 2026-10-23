@@ -45,7 +45,7 @@ class Boiler(hot_water_heat_source.HotWaterHeatSource):
       insulation_conductivity: float = 0.067,
       insulation_thickness: float = 0.06,
       init_return_water_temperature_sensor: float = 295.0,
-      energy_balance: bool = False,
+      energy_balance: bool = True,
   ):
     observable_fields = {
         'supply_water_temperature_setpoint': smart_device.AttributeInfo(
