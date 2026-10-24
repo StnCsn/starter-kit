@@ -192,16 +192,20 @@ class Simulator[ZoneKeyT]:
     zone_supply_temp_map = {}
     # Heat the reheat coils deliver, for the tank's energy balance. The return
     # water temperature below is an average of discharge-air temperatures and
-    # does not reproduce it.
+    # does not reproduce it. Only read with an energy-balanced tank: in the
+    # legacy boiler every sensor read advances the tank temperature.
+    energy_balance = hvac.hot_water_system.energy_balance
     coil_heat_w = 0.0
 
     # Iterate through each zone.
     for zone, zone_temp in avg_temps.items():
       vav = hvac.vavs[zone]
 
-      coil_heat_w += vav.compute_reheat_energy_rate(
-          supply_air_temp, hvac.hot_water_system.supply_water_temperature_sensor
-      )
+      if energy_balance:
+        coil_heat_w += vav.compute_reheat_energy_rate(
+            supply_air_temp,
+            hvac.hot_water_system.supply_water_temperature_sensor,
+        )
       q_zone, zone_supply_temp = vav.output(zone_temp, supply_air_temp)
       zone_supply_temp_map[zone] = zone_supply_temp
 

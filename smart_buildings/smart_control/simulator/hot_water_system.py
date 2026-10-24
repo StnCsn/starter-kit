@@ -292,6 +292,11 @@ class HotWaterSystem(smart_device.SmartDevice):
     """Returns power consumed by pump in W to move water to VAVs."""
     return self._pump.compute_pump_power(self.total_flow_rate)
 
+  @property
+  def energy_balance(self) -> bool:
+    """Whether the heat source is an energy-balanced tank (see apply_heat_draw)."""
+    return bool(getattr(self._heat_source, "energy_balance", False))
+
   def apply_heat_draw(
       self,
       outside_temp: float,
@@ -310,7 +315,7 @@ class HotWaterSystem(smart_device.SmartDevice):
         flow * (T_supply - T_return), which is exact only if the return
         temperature comes from the coils' energy balance.
     """
-    if not getattr(self._heat_source, "energy_balance", False):
+    if not self.energy_balance:
       return
     if coil_heat_w is None:
       coil_heat_w = (
