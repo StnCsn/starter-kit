@@ -11,13 +11,20 @@ in the same step or earlier to charge the tank.
 import inspect
 
 from absl.testing import absltest
+import pandas as pd
 
 from smart_buildings.smart_control.simulator import (
+    air_handler,
     boiler,
+    building,
+    hot_water_system,
+    hvac,
+    pump,
     simulator,
     simulator_flexible_floor_plan,
+    weather_controller,
 )
-from smart_buildings.smart_control.utils import constants
+from smart_buildings.smart_control.utils import constants, test_utils
 
 STEP_S = 300.0
 CAPACITY = constants.WATER_HEAT_CAPACITY * constants.WATER_DENSITY * 1.5  # J/K
@@ -57,6 +64,47 @@ class BoilerEnergyBalanceTest(absltest.TestCase):
     self.assertEqual(b.compute_thermal_energy_rate(0.0, 280.0, 0.0), 0.0)
     # the tank pays for the draw: 50 kW for 5 min out of 6.3 MJ/K
     self.assertLess(b.supply_water_temperature_sensor, t0 - 2.3)
+
+  def test_base_simulator_tank_pays_for_the_coil_heat(self):
+    # Setpoint below the tank: the burner stays off, so in every step the tank
+    # must lose exactly the heat the reheat coils delivered plus its standing
+    # loss (the base simulator's averaged return temperature would not give it).
+    air = building.MaterialProperties(50.0, 700.0, 1.2)
+    wall = building.MaterialProperties(2.0, 1000.0, 1800.0)
+    ext = building.MaterialProperties(0.05, 1000.0, 3000.0)
+    b = building.Building(50.0, 300.0, (4, 4), (2, 2), 284.0, air, wall, ext)
+    weather = weather_controller.WeatherController(265.0, 270.0)
+    tank = _boiler(340.0)
+    hws = hot_water_system.HotWaterSystem(
+        heat_source=tank, pump=pump.WaterPump(6.0, 0.98)
+    )
+    ahu = air_handler.AirHandler(0.3, 290, 10000.0, 0.9)
+    zones = list(b.get_zone_average_temps().keys())
+    h = hvac.Hvac(
+        zones, ahu, hws, test_utils.get_test_setpoint_schedule(), 0.45, 0.02
+    )
+    sim = simulator.Simulator(
+        b, h, weather, STEP_S, pd.Timestamp("2021-05-10 10:00")
+    )
+    tank.supply_water_temperature_setpoint = 310.0
+    for _ in range(4):
+      hws.differential_pressure_setpoint = 2.0
+      for vav in h.vavs.values():
+        vav.reheat_valve_setting = 1.0
+        vav.damper_setting = 0.5
+      outside = weather.get_current_temp(sim._current_timestamp)
+      supply_air = ahu.get_supply_air_temp(b.temp.mean(), outside)
+      t_before = tank.supply_water_temperature_sensor
+      loss = tank.compute_thermal_dissipation_rate(t_before, outside)
+      sim.execute_step_sim()
+      coil = sum(
+          v.compute_reheat_energy_rate(supply_air, t_before)
+          for v in h.vavs.values()
+      )
+      drop = CAPACITY * (t_before - tank.supply_water_temperature_sensor)
+      self.assertGreater(coil, 1000.0)
+      self.assertEqual(tank.compute_thermal_energy_rate(0.0, 0.0, 0.0), 0.0)
+      self.assertAlmostEqual(drop / STEP_S - loss, coil, delta=1e-6 * coil)
 
   def test_both_simulators_advance_the_tank(self):
     # With energy_balance on, the boiler no longer moves its own temperature on
