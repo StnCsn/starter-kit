@@ -698,13 +698,18 @@ class SimulatorFlexibleGeometries(simulator.Simulator[str]):
     area.
 
     The previous version weighted every VAV by floor area. That differs from
-    the mixture whenever airflow per unit area differs between VAVs: sending
-    most of the air through cold zones and little through warm ones made the
-    mixed air warmer than any blend of what left the zones, so the handler
-    delivered heat that no stream carried (over 100 kW in a cold climate with
-    almost no gas), and its mixing box generated negative entropy. The reverse
-    gives free cooling. The handler's flow cap scales every VAV it serves by
-    the same ratio, so the uncapped demand gives the same weights.
+    the enthalpy of the extracted air whenever airflow per unit area differs
+    between VAVs: sending most of the air through cold zones and little through
+    warm ones made the recirculated air warmer than the air that actually left
+    the zones, so the handler delivered heat that no stream carried, and its
+    mixing box generated negative entropy. The reverse gives free cooling. The
+    handler's flow cap scales every VAV it serves by the same ratio, so the
+    uncapped demand gives the same weights. A VAV the step skips (closed damper
+    or no maximum flow) delivers no air and gets no weight.
+
+    This corrects the spatial weighting only. The step still mixes
+    start-of-step zone temperatures while the zones exchange heat at their
+    end-of-step temperatures, a separate and smaller timing term.
 
     Args:
       avg_temps: Average temperature in K of each zone.
@@ -721,7 +726,12 @@ class SimulatorFlexibleGeometries(simulator.Simulator[str]):
         continue
       v_temp = sum(avg_temps[z] * room_areas[z] for z in zones) / v_area
       ahu_id = vav.air_handler.device_id()
-      v_flow = vav.unrestricted_flow_rate_demand
+      # Same condition as the step's air-side coupling below.
+      v_flow = (
+          vav.unrestricted_flow_rate_demand
+          if vav.damper_setting > 0 and vav.max_air_flow_rate > 0
+          else 0.0
+      )
       flow_temp_sum[ahu_id] += v_temp * v_flow
       flow_total[ahu_id] += v_flow
       area_temp_sum[ahu_id] += v_temp * v_area
@@ -736,7 +746,7 @@ class SimulatorFlexibleGeometries(simulator.Simulator[str]):
       ahu_id = ahu.device_id()
       if flow_total.get(ahu_id, 0) > 0:
         temps[ahu_id] = flow_temp_sum[ahu_id] / flow_total[ahu_id]
-      elif area_total.get(ahu_id, 0) > 0:   # no air moving: nothing to mix
+      elif area_total.get(ahu_id, 0) > 0:  # no air moving: nothing to mix
         temps[ahu_id] = area_temp_sum[ahu_id] / area_total[ahu_id]
       else:
         temps[ahu_id] = self.building.temp.mean()
