@@ -45,7 +45,7 @@ class ReturnAirMixingTest(absltest.TestCase):
           self.sim.building.temp[r, c] = 283.15 if v_id == self.v_ids[0] else 298.15
 
   def _vav_means(self):
-    """(area, temperature, delivered flow) of each VAV of the chosen handler, from the zone fields."""
+    """(area, temperature, mixing weight) of each VAV of the chosen handler, from the zone fields."""
     hvac, rooms = self.sim.hvac, self.sim.building.room_dict
     avg = self.sim.building.get_zone_average_temps()
     out = []
@@ -54,7 +54,11 @@ class ReturnAirMixingTest(absltest.TestCase):
       zones = hvac.get_zones_for_vav(v_id)
       area = sum(len(rooms[z]) for z in zones)
       temp = sum(avg[z] * len(rooms[z]) for z in zones) / area
-      flow = vav.unrestricted_flow_rate_demand if vav.damper_setting > 0 else 0.0
+      flow = (
+          vav.unrestricted_flow_rate_demand
+          if vav.damper_setting > 0 and vav.max_air_flow_rate > 0
+          else 0.0
+      )
       out.append((area, temp, flow))
     return avg, out
 

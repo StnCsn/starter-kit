@@ -709,7 +709,7 @@ class SimulatorFlexibleGeometries(simulator.Simulator[str]):
 
     This corrects the spatial weighting only. The step still mixes
     start-of-step zone temperatures while the zones exchange heat at their
-    end-of-step temperatures, a separate and smaller timing term.
+    end-of-step temperatures, a separate temporal-discretization error.
 
     Args:
       avg_temps: Average temperature in K of each zone.
